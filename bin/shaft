@@ -1,6 +1,7 @@
 #!/usr/bin/env ruby
 
-SHAFT_DIR = File.join(Dir.home, ".shaft")
+SHAFT_CONFIG = File.join(Dir.home, ".shaft")
+SHAFT_ACTIVE = File.join(Dir.home, ".shaft.active")
 
 require 'rubygems'
 require 'thor'
@@ -10,11 +11,11 @@ class ShaftCLI < Thor
   include Thor::Actions
 
   map "-h" => :help
-  map "-l" => :list
+  map "-l" => :active
 
-  desc "list", "Lists active tunnels"
+  desc "active", "Lists active tunnels"
   method_options %w( short -s ) => :boolean
-  def list
+  def active
     active = get_active
     unless active.empty?
       if options[:short]
@@ -31,7 +32,7 @@ class ShaftCLI < Thor
   desc "all", "Lists all available tunnels"
   def all
     say "Listing all available tunnels:"
-    tunnels = Dir["#{SHAFT_DIR}/*.yml"].map { |f| File.basename(f, ".yml") }
+    tunnels = get_config.keys
     print_in_columns tunnels
   end
 
@@ -42,18 +43,20 @@ class ShaftCLI < Thor
     if active.has_key? name
       say "Error: tunnel '#{name}' already active!"
     else
-      c = read_yaml("#{name}.yml")
+      c = get_tunnel(name)
       unless c.nil?
         begin
           port = c['port']
           bind = "#{c['bind']['client-port']}:#{c['bind']['host']}:#{c['bind']['host-port']}"
           host = "#{c['username']}@#{c['host']}"
         rescue NoMethodError
-          error "Tunnel file for '#{name}' appears to be invalid!"
+          error "Tunnel configuration for '#{name}' appears to be invalid!"
           return
         end
 
-        if local_port_used? c['bind']['client-port']
+        used = local_port_used?(c['bind']['client-port'])
+        if used
+          error "Local port #{port} is used by:\n#{used}"
           return
         end
 
@@ -65,7 +68,7 @@ class ShaftCLI < Thor
         active[name] = pid
         set_active(active)
       else
-        error "Tunnel '#{name}' file not found!"
+        error "Tunnel '#{name}' not found!"
       end
     end
   end
@@ -74,19 +77,25 @@ class ShaftCLI < Thor
   method_options :name => :string
   def stop(name)
     active = get_active
-    if active.has_key? name
+    if active.has_key?(name)
       say "Stopping tunnel '#{name}' at pid #{active[name]}..."
       begin
         Process.kill "INT", active[name]
-        say "Stopped."
       rescue Errno::ESRCH
         say "Tunnel wasn't active (zombie shaft item)."
       end
 
-      #TODO verify killing?
+      # verify killing
+      tunnel = get_tunnel(name)
+      if local_port_used?(tunnel['bind']['client-port'])
+        error "Could not stop tunnel process!"
+      else
+        say "Stopped."
 
-      active.delete(name)
-      set_active(active)
+        # set as inactive
+        active.delete(name)
+        set_active(active)
+      end
     else
       error "Tunnel '#{name}' does not seem to be active!"
     end
@@ -99,36 +108,39 @@ class ShaftCLI < Thor
   end
 
   private
-  def read_yaml(filename)
-    path = File.join(SHAFT_DIR, filename)
-    YAML::load(File.open(path)) if File.exist?(path)
+  def get_config
+    @config ||= read_yaml(SHAFT_CONFIG)
   end
 
   def get_active
-    active = read_yaml(".active")
-    if active.nil?
-      active = {}
-      set_active(active)
-    end
-    active
+    @active ||= read_yaml(SHAFT_ACTIVE)
+  end
+
+  def get_tunnel(name)
+    get_config[name] || nil
   end
 
   def set_active(active)
-    unless File.exist?(SHAFT_DIR) and File.directory?(SHAFT_DIR)
-      Dir.mkdir(SHAFT_DIR)
-    end
-
-    File.open(File.join(SHAFT_DIR, '.active'), 'w') { |f|
-      f.write(active.to_yaml)
+    File.open(SHAFT_ACTIVE, 'w') { |out|
+      YAML.dump(active, out)
     }
+  end
+
+  def read_yaml(file)
+    if File.directory?(SHAFT_CONFIG)
+      error "Shaft v0.7 and up uses a single-file config.\nConsult the Readme at http://git.io/Zs3viQ ."
+      {}
+    elsif File.exists?(file)
+      YAML::load(File.open(file))
+    else
+      {}
+    end
   end
 
   def local_port_used?(port)
     usage = `lsof -n -i4TCP:#{port} | grep LISTEN`
     if usage.length > 0
-      error "Error: Local port #{port} is used by:"
-      puts usage
-      true
+      usage
     else
       false
     end

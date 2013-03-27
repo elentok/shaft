@@ -22,14 +22,14 @@ As easy as:
 
 ## Usage
 
-Your tunnel configurations need to be stored as
-[YAML](http://www.yaml.org) files on your `~/.shaft/` dir.
+Your tunnel configurations need to be stored as records in
+a [YAML](http://www.yaml.org) formatted `~/.shaft` file.
 
 See 'Configuration' for instructions on how to format these
 files.
 
 * Use `shaft all` to get a list of all available tunnels.
-* Use `shaft list` to see which tunnels are currently active.
+* Use `shaft active` to see which tunnels are currently active.
   - You could use the `--short` option to get only the names
     of those lines (this could be useful to insert into your
     shell prompt. Just saying).
@@ -38,22 +38,24 @@ files.
 
 ## Configuration
 
-Each SSH tunnel you want to have configured needs to be defined
-in YAML format and stored in `~/.shaft/name.yml`, where `name`
-is the tunnel name that would be used for `shaft`.
+The SSH tunnels configuration Shaft will use are all stored in
+a single YAML file under `~/.shaft`.
+
+Each tunnel is represented by a key defining its name, followed
+by an object describing all of the required parameters.
 
 An example configuration would be:
 
-    port: 22
-    username: user
-    host: remote-host
-    bind:
-      client-port: 9999
-      host: host
-      host-port: 8888
+    foobar:
+        port: 22
+        username: user
+        host: remote-host
+        bind:
+          client-port: 9999
+          host: host
+          host-port: 8888
 
-
-Starting the tunnel defined in this example would be equivalent
+Calling Shaft with `$ shaft start foobar` would be equivalent
 to running:
 
       $ ssh -N -p 22 user@remote-host -L 9999:host:8888
